@@ -39,16 +39,22 @@ already had and how much fine-tuning actually added.
 
 ## 2. Base-model choice
 
-**Typhoon (`scb10x/llama3.1-typhoon2-8b-instruct`)** — SCB 10X's Thai-first ~8B (Llama-3.1 based).
-Chosen because:
+**First choice — Typhoon (`scb10x/llama3.1-typhoon2-8b-instruct`)**, SCB 10X's Thai-first ~8B, for the
+obvious reason: the task is Thai/mixed NER, so a Thai-first base should have the highest **zero-shot**
+floor, and it continues A1 §11's "self-hosted Thai model" argument.
 
-- The task is Thai/mixed-language NER; a Thai-first base should have the highest **zero-shot** floor.
-- It's on the assignment's suggested list and continues A1 §11's "self-hosted Thai model" argument.
-- 8B in 4-bit (QLoRA) fits a free Colab T4; Unsloth supports the Llama-3.1 architecture.
+**What actually shipped — `unsloth/Qwen2.5-7B-Instruct-bnb-4bit` (judgment under a real constraint).**
+Typhoon-8B has **no pre-quantized build**, so `load_in_4bit` must download the full ~16GB fp16 weights
+and convert them — which **OOMs free Colab's ~12.7GB system RAM** (confirmed: the load crashed with
+"used all available RAM" mid-download). On free hardware the practical base is a **pre-quantized 4-bit**
+model: Qwen2.5-7B-4bit downloads ~5GB already-quantized, loads with a tiny RAM footprint, is multilingual
+(incl. Thai), and is well-supported by Unsloth. This is exactly the cost/hardware trade-off the role asks
+for: Typhoon is the better *Thai* model, but on free Colab the *runnable* model wins.
 
-We **picked it rather than running a multi-model bake-off**: the required zero-shot eval doubles as the
-sanity check, and the task is narrow enough that the base choice matters less than data quality.
-Fallbacks if it won't load / underperforms: `scb10x/typhoon2-qwen2.5-7b-instruct`, `unsloth/Qwen2.5-7B-Instruct`, or Gemma.
+We **picked rather than ran a multi-model bake-off** — the required zero-shot eval doubles as the sanity
+check, and the task is narrow enough that data quality matters more than the base. With Colab Pro / a
+bigger GPU, the natural choice is `scb10x/typhoon2-qwen2.5-7b-instruct` (Thai-first, same ChatML markers)
+or the 8B Typhoon; both are noted in the notebook config.
 
 ## 3. Training data
 
@@ -90,8 +96,8 @@ Scored by the **identical** A1 harness (`run_model` / `score_row` / `validate`) 
 | Model | Amount F1 | Detail F1 | Exact | Count | Notes |
 |-------|-----------|-----------|-------|-------|-------|
 | A1 baseline — gemini-2.5-flash-lite | 100.0 | 98.4 | 98.2 | 100.0 | commercial (from A1) |
-| Typhoon — zero-shot | _Colab_ | _Colab_ | _Colab_ | _Colab_ | pre-finetune floor |
-| **Typhoon + LoRA** | _Colab_ | _Colab_ | _Colab_ | _Colab_ | the deliverable |
+| Qwen2.5-7B-4bit — zero-shot | _Colab_ | _Colab_ | _Colab_ | _Colab_ | pre-finetune floor |
+| **Qwen2.5-7B-4bit + LoRA** | _Colab_ | _Colab_ | _Colab_ | _Colab_ | the deliverable |
 
 Per-bucket breakdown: see `reports/eval_zeroshot.json` and `reports/eval_finetuned.json` (printed by the
 notebook).
