@@ -144,6 +144,7 @@ class ExtractResult:
     completion_tokens: int = 0
     error: str | None = None          # None on success; otherwise the failure class
     short_circuited: bool = False     # True if we returned [] without calling the API
+    route: str = "llm"                # "llm" | "regex" | "short_circuit" (tiered mode)
 
     @property
     def output(self) -> dict:
@@ -232,7 +233,7 @@ def extract_verbose(text: Any, model: str = DEFAULT_MODEL) -> ExtractResult:
             text = "" if text is None else str(text)
         # Short-circuit empty / whitespace before spending an API call.
         if not text.strip():
-            return ExtractResult(short_circuited=True)
+            return ExtractResult(short_circuited=True, route="short_circuit")
         # Cap oversized input.
         if len(text) > MAX_INPUT_CHARS:
             text = text[:MAX_INPUT_CHARS]
@@ -251,6 +252,11 @@ def extract(text: Any, model: str = DEFAULT_MODEL) -> dict:
 # --------------------------------------------------------------------------- #
 if __name__ == "__main__":
     import sys
+
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # Thai output on Windows consoles
+    except Exception:
+        pass
 
     args = sys.argv[1:]
     model = DEFAULT_MODEL

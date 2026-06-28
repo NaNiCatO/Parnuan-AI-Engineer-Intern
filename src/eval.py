@@ -206,13 +206,15 @@ def pctile(vals: list[float], q: float) -> float:
 # --------------------------------------------------------------------------- #
 # Run one model over the dataset
 # --------------------------------------------------------------------------- #
-def run_model(model: str, rows: list[dict]) -> dict:
+def run_model(model: str, rows: list[dict], extractor=extract_verbose, label: str | None = None) -> dict:
     pricing = PRICING.get(model, {"in": 0.0, "out": 0.0})
     results, scores = [], []
     latencies, total_cost = [], 0.0
+    routes = Counter()
 
     for row in rows:
-        res = extract_verbose(row["input"], model)
+        res = extractor(row["input"], model)
+        routes[res.route] += 1
         rs = score_row(row["transactions"], res.transactions, res.error)
         scores.append(rs)
         if not res.short_circuited and res.latency_ms > 0:
@@ -250,7 +252,9 @@ def run_model(model: str, rows: list[dict]) -> dict:
 
     n = len(rows)
     return {
-        "model": model,
+        "model": label or model,
+        "base_model": model,
+        "routes": dict(routes),
         "pricing_per_token": pricing,
         "overall": overall,
         "by_bucket": by_bucket,
@@ -308,10 +312,16 @@ def print_report(reports: list[dict]) -> None:
 # Main
 # --------------------------------------------------------------------------- #
 def main() -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # Thai output on Windows consoles
+    except Exception:
+        pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default="data/dataset.jsonl")
     ap.add_argument("--model", action="append", help="repeatable; defaults to the 3 candidates")
     ap.add_argument("--limit", type=int, default=0, help="evaluate only first N rows (debug)")
+    ap.add_argument("--tiered", action="store_true",
+                    help="also run the regex->LLM tiered optimizer on the ship model and show the delta")
     args = ap.parse_args()
 
     models = args.model or DEFAULT_MODELS
@@ -334,6 +344,28 @@ def main() -> None:
         reports.append(rep)
 
     print_report(reports)
+
+    if args.tiered:
+        from src.tiered import extract_tiered_verbose
+        ship = "google/gemini-2.5-flash-lite"
+        print(f"\nRunning TIERED (regex -> {ship}) ...")
+        tier = run_model(ship, rows, extractor=extract_tiered_verbose, label=f"tiered+{ship}")
+        with open("reports/eval_tiered.json", "w", encoding="utf-8") as f:
+            json.dump(tier, f, ensure_ascii=False, indent=2)
+
+        base = next((r for r in reports if r["base_model"] == ship), None)
+        print_report([tier])
+        if base:
+            d_f1 = (tier["overall"]["detail"]["f1"] - base["overall"]["detail"]["f1"]) * 100
+            c_base, c_tier = base["cost_per_1k_usd"], tier["cost_per_1k_usd"]
+            saved = (1 - c_tier / c_base) * 100 if c_base else 0.0
+            print("\n" + "=" * 78)
+            print("COST OPTIMIZATION DELTA (tiered vs pure Gemini Flash-Lite)")
+            print("=" * 78)
+            print(f"  routes (tiered)   : {tier['routes']}")
+            print(f"  detail F1 delta   : {d_f1:+.1f} pts  ({fmt_pct(base['overall']['detail']['f1'])} -> {fmt_pct(tier['overall']['detail']['f1'])})")
+            print(f"  cost / 1k delta   : ${c_base} -> ${c_tier}   ({saved:.1f}% cheaper)")
+
     print(f"\nSaved per-model JSON to reports/. Ran {len(rows)} messages x {len(models)} models.")
 
 
