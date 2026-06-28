@@ -20,12 +20,15 @@ amounts, and never leaks its prompt — accuracy comes second.
 ## Setup & run
 
 Requires [uv](https://github.com/astral-sh/uv) and an [OpenRouter](https://openrouter.ai) key.
+Run all commands from the `Assignment1/` directory.
 
 ```bash
+cd Assignment1
+
 # 1. install
 uv sync
 
-# 2. add your key
+# 2. add your key  (a .env at the repo root also works)
 cp .env.example .env        # then edit .env: OPENROUTER_API_KEY=sk-or-...
 
 # 3. run on one message

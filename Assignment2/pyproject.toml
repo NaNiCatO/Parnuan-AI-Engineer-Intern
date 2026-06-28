@@ -1,0 +1,16 @@
+[project]
+name = "parnuan-ner-finetune"
+version = "0.1.0"
+description = "Assignment 2 — LoRA fine-tune a small open model to match the A1 commercial baseline"
+readme = "README.md"
+requires-python = ">=3.10"
+# Local deps for training-data generation + the same-harness eval glue.
+# Heavy training deps (unsloth, trl, transformers, torch) live in the Colab notebook, not here.
+dependencies = [
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "pydantic>=2.6",
+]
+
+[tool.uv]
+package = false
