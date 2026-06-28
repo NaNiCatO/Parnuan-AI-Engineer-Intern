@@ -82,10 +82,12 @@ writing. The notebook repeats this check. Last run filtered ~53 eval-overlaps + 
 
 ## 4. Training setup
 
-- **Tooling:** Unsloth + TRL `SFTTrainer`, **QLoRA 4-bit**.
+- **Tooling:** Unsloth (4-bit load + fast LoRA) + HuggingFace `Trainer`, **QLoRA 4-bit**. (Plain
+  `Trainer` rather than TRL `SFTTrainer` — TRL's API churned against Colab's transformers 5.5; the HF
+  `Trainer` path is version-stable.)
 - **LoRA:** r=16, α=32, dropout=0, targets q/k/v/o + gate/up/down proj.
-- **Optim:** lr 2e-4, cosine, 2 epochs, batch 2 × grad-accum 4, max_seq 1024, bf16, seed 7.
-- **Loss masking:** `train_on_responses_only` — loss on the JSON completion only, not the prompt.
+- **Optim:** lr 2e-4, cosine, 2 epochs, batch 2 × grad-accum 4, max_seq 1024, fp16 on T4 (bf16 on Ampere+), seed 7.
+- **Loss masking:** prompt tokens set to `-100` so loss is computed only on the JSON completion.
 - **Format:** chat template with A1's `SYSTEM_PROMPT` (system) + message (user) + JSON contract (assistant).
 - **Hardware/cost:** Colab free **T4**, ≈ _Colab_ min, **$0**.
 
