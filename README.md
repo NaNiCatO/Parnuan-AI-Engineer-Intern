@@ -45,8 +45,20 @@ uv run python src/eval.py --tiered
 
 ## 1. Approach
 
-A **pure-LLM extractor** wrapped in a **defensive validation layer**, evaluated honestly across three
-price tiers, with an optional **regex→LLM tiered router** for cost.
+A **pure-LLM extractor** wrapped in a **defensive validation layer**, evaluated across three price
+tiers, with an optional **regex→LLM tiered router** for cost.
+
+In plain terms:
+
+- **Pure-LLM extractor** — the actual extraction is done *only* by an LLM call. There are no hand-written
+  parsing rules in the core path; we give the model the raw text + a prompt and it returns the
+  transactions. ("Pure" = the logic lives in the prompt and model, not in custom code.)
+- **Defensive validation layer** — the model's output is never trusted directly. A wrapper around the
+  call assumes the model can misbehave and contains it: it repairs/parses the JSON, checks it against a
+  fixed schema (`{"transactions": [{"amount": number, "detail": string}]}`), coerces bad values, and on
+  *any* failure (bad JSON, wrong shape, timeout, 5xx, rate-limit) returns `{"transactions": []}` instead
+  of crashing or passing through garbage. The LLM does the smart-but-unreliable work; this layer makes
+  the system's output reliable regardless. (This is what caught Claude's one unparseable response — §7.)
 
 The whole system is ~2 small files:
 
@@ -67,7 +79,7 @@ over-engineering and the problem is a script.
 
 ## 2. Dataset
 
-`data/dataset.jsonl` — **55 hand-labeled examples**, each `{"input", "transactions", "bucket"}`,
+`data/dataset.jsonl` — **55 labeled examples**, each `{"input", "transactions", "bucket"}`,
 tagged by bucket so the eval reports per-bucket metrics.
 
 | Bucket | n | What it covers |
@@ -79,7 +91,8 @@ tagged by bucket so the eval reports per-bucket metrics.
 | `adversarial` | 10 | empty, whitespace, prompt injection (Thai+Eng), amount-only, detail-only, emoji, weird unicode, huge input, and an **injection that tries to inject a fake transaction** |
 
 All 4 required demo cases are present (rows for `ข้าวมันไก่ 50`, the multi case, `สวัสดีครับ วันนี้อากาศดี`,
-and injection). Built by hand + light LLM assist, **every label verified by hand**.
+and injection). Process: I wrote the spec above — the buckets, target counts, and labeling rules — and
+used an LLM to generate the examples against it, then reviewed the labels for the rules below.
 
 **Definition of "correct" (the labeling rules I locked before writing the data):**
 
@@ -148,34 +161,39 @@ with a predicted one of **equal amount** (one-to-one). Then:
 3 models via OpenRouter, spanning ~30× cost across three providers. Live pricing pulled from
 `GET /api/v1/models` before the run. Full dataset (55 messages).
 
-<!-- FINAL TABLE FILLED AFTER 3-MODEL RUN -->
-
 | Model | Amount F1 | Detail F1 | Exact | p50 / p95 (ms) | $/1k msgs | Notes |
 |-------|-----------|-----------|-------|----------------|-----------|-------|
-| `google/gemini-2.5-flash-lite` | 100.0 | 98.4 | 98.2 | 824 / 1439 | $0.056 | budget ship pick |
-| `openai/gpt-5-mini` | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | mid reference |
-| `anthropic/claude-sonnet-4.6` | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | flagship ceiling |
+| `google/gemini-2.5-flash-lite` | **100.0** | 98.4 | 98.2 | **767 / 1666** | **$0.056** | budget ship pick; 1 Thai-spacing miss |
+| `openai/gpt-5-mini` | 100.0 | **100.0** | **100.0** | 4530 / 8053 | $0.400 | perfect, but ~8s p95 and ~7× the cost |
+| `anthropic/claude-sonnet-4.6` | 97.5 | 97.5 | 98.2 | 2903 / 5008 | $2.210 | **most expensive (~39×), lowest F1** |
 
-(Prices per token, $: gemini-flash-lite 0.10/0.40 · gpt-5-mini 0.25/2.00 · sonnet-4.6 3.00/15.00 per 1M in/out.)
+(Prices per 1M tokens in/out: gemini-flash-lite 0.10/0.40 · gpt-5-mini 0.25/2.00 · sonnet-4.6 3.00/15.00.
+Cost/1k is measured tokens × live price, full 55-message run.)
+
+Notes: the flagship was the most expensive and the lowest F1 here — one clean 3-transaction message
+came back as unparseable JSON, which the system degraded to `[]`. `gpt-5-mini` scored highest but was
+~8× slower (p95) and ~7× more expensive than Gemini for 1.6 points of detail-F1.
 
 ---
 
 ## 6. Recommendation
 
-**Ship `google/gemini-2.5-flash-lite`.** <!-- finalize wording after full run -->
+**Ship `google/gemini-2.5-flash-lite`** (pure), or the **tiered regex→Gemini** system (see §12) for
+lower cost at the same accuracy.
 
 The reasoning is multi-objective, not F1-maximizing:
 
-- **Quality:** 100 amount-F1 / 98.4 detail-F1 on the eval — its single miss is a Thai-spacing artifact
-  (`ค่าวิน`→`ค่า วิน`), not a money error.
-- **Cost:** ~$0.056 / 1k messages. At 500k users × ~3 messages/day that's ~$0.45M messages/day → on the
-  order of **$25/day**, vs the flagship at ~30× that for a few points of F1 the product doesn't need.
-- **Latency:** sub-1.5s p95 — fine for an async "review your transactions" flow.
-- The flagship serves as a **ceiling reference**: if it only buys a few F1 points at 30× the cost, the
-  cheap model is the correct ship decision. (Confirmed once the full table is filled.)
+- **Quality:** 100 amount-F1 / 98.4 detail-F1. Its only miss is a Thai-spacing artifact
+  (`ค่าวิน`→`ค่า วิน`), not a money error — and the tiered system removes even that.
+- **Cost:** ~$0.056 / 1k messages. At 500k users × ~3 msgs/day (~1.5M msgs/day) that's roughly
+  **$85/day**; `gpt-5-mini` would be ~$600/day and `sonnet-4.6` ~$3,300/day for the *same or worse*
+  accuracy. The tiered system drops Gemini's bill by **67.5%** (~$28/day).
+- **Latency:** p95 1.7s vs `gpt-5-mini`'s 8.1s.
+- **Ceiling reference:** the flagship was the most expensive and the least accurate in this run, so
+  "use the biggest model" is not justified here.
 
-For a finance app where the user *reviews* extractions before saving, "good and cheap" beats "perfect
-and expensive."
+`gpt-5-mini` is the only model that beat Gemini (by 1.6 detail-F1 pts), at ~7× the cost and ~5× the
+latency. For a finance app where the user reviews extractions before saving, that trade isn't worth it.
 
 ---
 
@@ -187,11 +205,18 @@ Categories: `missed_transaction`, `extra_transaction` (hallucinated), `wrong_amo
 `merged_transactions`, `split_transaction`, `false_positive` (extracted from a non-transaction), and
 `degraded` (system fell back to `[]` on an API/parse failure).
 
-**Top failure mode observed (Gemini Flash-Lite):**
+**Observed across the 3 models (55 messages each):**
 
-- `wrong_detail` ×1 — `ค่าวิน45บ` → got `ค่า วิน` vs gold `ค่าวิน`. The model inserted a space into an
-  unsegmented Thai compound. This is the canonical Thai-NLP failure: **word segmentation**. (More modes
-  from the pricier models added after the full run.)
+- **Gemini Flash-Lite** — `wrong_detail` ×1: `ค่าวิน45บ` → `ค่า วิน` vs gold `ค่าวิน`. The model inserted
+  a space into an unsegmented Thai compound. This is *the* canonical Thai-NLP failure — **word
+  segmentation** — and the only error it made.
+- **gpt-5-mini** — zero errors on the dataset.
+- **claude-sonnet-4.6** — `degraded:unparseable_json` ×1 → `missed_transaction` ×1: on the clean message
+  `เน็ต 599 ไฟ 850 น้ำ 320` it returned output the parser+repair couldn't salvage, so the system returned
+  `[]` rather than crashing or emitting a bad shape. This is the contract's intended fallback.
+
+No model in this run produced `wrong_amount`, `extra_transaction`, `merged`/`split`, or `false_positive`
+errors on the adversarial and non-transaction buckets.
 
 ---
 
@@ -243,10 +268,18 @@ it; the validation layer is the backstop if the model misbehaves anyway.
 
 1. Add a `pythainlp`-based detail normalizer (shared by labeling + eval) to neutralize spacing noise.
 2. Grow the dataset to ~300 with real (anonymized) message distributions and inter-annotator checks.
+   In particular, add **harder messy patterns** the current set doesn't cover — e.g. *grouped*
+   layouts where all items come first and all amounts after (`เน็ต ไฟ น้ำ 599 850 320`), which force
+   positional alignment, plus ranges, discounts (`ลด 20%`), and quantity-vs-price (`เบียร์ 2 ขวด 180`).
 3. Add a cheap-model→flagship **confidence cascade** (route only low-confidence messages up).
 4. Add prompt-caching / batching for the LLM tier; measure the cost delta.
-5. Eval a **Thai-specialized** model (Typhoon by SCB 10X, OpenThaiGPT) — likely better Thai per dollar
-   for a Thai fintech, and self-hostable.
+5. **Move the LLM tier to a self-hosted local model** to cut per-call API cost toward ~zero at scale.
+   A small open-weight model (Qwen3 / a quantized Llama, or a Thai-specialized **Typhoon** by SCB 10X /
+   **OpenThaiGPT**) running on our own GPU has no per-token charge — at 500k+ users the fixed GPU cost
+   amortizes well below per-call API pricing, and keeps financial text in-house (privacy). The honest
+   cost comparison: API is cheaper until throughput is high enough that a GPU stays busy; past that
+   break-even, local inference is effectively free per message. Worth benchmarking F1 vs. the API
+   models before committing — a local model only wins if it holds accuracy on Thai.
 
 ---
 
@@ -259,20 +292,31 @@ it; the validation layer is the backstop if the model misbehaves anyway.
 injection, or *any leftover unparsed text* — is **deferred to the LLM**, so accuracy can't drop below
 the pure-LLM system.
 
-**Coverage (offline, no API):** the regex confidently handles **36/55 (65%)** messages with **0 errors**;
-the remaining 19 (Thai numerals, greetings, injection, etc.) go to the LLM.
+**Routing on the 55-message eval:** `regex 34` (free) · `short_circuit 2` (empty/whitespace, free) ·
+`llm 19`. So **36/55 (65%) never touch the LLM.**
 
-<!-- COST/F1 DELTA FILLED AFTER --tiered RUN -->
-**Result:** ~65% of messages bypass the LLM → **~65% cost reduction** with **~0 F1 loss** (exact deltas
-filled from `--tiered` after credit). In production the regex hit-rate would be even higher, since most
-logged transactions are clean.
+**Result (tiered regex→Gemini vs pure Gemini):**
 
-Trade-off: the regex is intentionally *cautious* (high precision, lower recall) — it would rather pay
-for an LLM call than guess wrong on a money field.
+| | Detail F1 | $/1k msgs |
+|--|-----------|-----------|
+| pure Gemini Flash-Lite | 98.4 | $0.0565 |
+| **tiered regex → Gemini** | **100.0** | **$0.0183** |
+| delta | **+1.6 pts** | **−67.5%** |
+
+The tiered system is **67.5% cheaper *and* slightly more accurate** — the regex happens to handle the one
+case Gemini got wrong (`ค่าวิน45บ`). In production the regex hit-rate would be higher still, since most
+logged transactions are clean `item amount` lines.
+
+Trade-off: the regex is intentionally *cautious* (high precision, lower recall) — it defers anything
+ambiguous (Thai numerals, number-words, injection, leftover text) and would rather pay for an LLM call
+than guess wrong on a money field.
 
 ---
 
 ## 13. Time spent
 
-~3.5 hours: ~45m dataset, ~45m NER system, ~1h eval harness + alignment/taxonomy, ~30m tiered bonus,
-~30m README + runs. (Plus environment setup — uv/Python on Windows — which was its own adventure.)
+Measured from git history: the build ran from the first commit (scaffold, 20:35) to the last (~22:06) —
+**~1.5 hours of wall-clock build time**. That window also includes environment setup (uv/Python on
+Windows), waiting on OpenRouter credit, three eval reruns, and README revisions from review feedback.
+Add roughly 45 minutes of planning, plan critique, and dataset-spec work before the first commit, for a
+**total of ~2.25 hours** (hands-on time is somewhat less, given the idle waits).
