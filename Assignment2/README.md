@@ -86,7 +86,9 @@ writing. The notebook repeats this check. Last run filtered ~53 eval-overlaps + 
   `Trainer` rather than TRL `SFTTrainer` — TRL's API churned against Colab's transformers 5.5; the HF
   `Trainer` path is version-stable.)
 - **LoRA:** r=16, α=32, dropout=0, targets q/k/v/o + gate/up/down proj.
-- **Optim:** lr 2e-4, cosine, 2 epochs, batch 2 × grad-accum 4, max_seq 1024, fp16 on T4 (bf16 on Ampere+), seed 7.
+- **Optim:** lr 2e-4, cosine, 1 epoch, batch 2 × grad-accum 4, max_seq 2048, fp16 on T4 (bf16 on Ampere+), seed 7.
+  (max_seq must hold the ~600–800-token few-shot prompt + completion; smaller values truncate the JSON
+  target and break inference.)
 - **Loss masking:** prompt tokens set to `-100` so loss is computed only on the JSON completion.
 - **Format:** chat template with A1's `SYSTEM_PROMPT` (system) + message (user) + JSON contract (assistant).
 - **Hardware/cost:** Colab free **T4**, ≈ _Colab_ min, **$0**.
