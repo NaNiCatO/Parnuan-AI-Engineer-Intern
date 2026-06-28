@@ -1,0 +1,16 @@
+# secrets
+.env
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.uv/
+*.egg-info/
+
+# jupyter
+.ipynb_checkpoints/
+
+# os
+.DS_Store
+Thumbs.db

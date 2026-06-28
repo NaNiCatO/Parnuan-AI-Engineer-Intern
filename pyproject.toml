@@ -1,0 +1,17 @@
+[project]
+name = "parnuan-ner"
+version = "0.1.0"
+description = "Text -> Transaction NER system for Thai/mixed-language finance messages"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+notebook = ["jupyterlab>=4.0"]
+
+[tool.uv]
+package = false
