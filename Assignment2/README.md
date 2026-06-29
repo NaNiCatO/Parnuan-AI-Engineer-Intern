@@ -98,8 +98,9 @@ writing. The notebook repeats this check. Last run filtered ~53 eval-overlaps + 
 - **Loss curve** (`reports/loss_curve.png`): training loss is *small throughout* (peaks ~0.037, settles
   to ~0). That's expected — the zero-shot base already nearly solved the task (§5), so there was little
   to learn; LoRA reinforces rather than transforms. Low loss here is a signal, not a bug.
-- **Adapter artifact:** LoRA adapter (~155 MB) at **`<ADAPTER_LINK>`** (HF Hub / Drive). Not committed to
-  the repo — it exceeds GitHub's 100 MB per-file limit. Reproduce by re-running the notebook.
+- **Adapter artifact:** LoRA adapter (~155 MB) on
+  [Google Drive](https://drive.google.com/drive/folders/1YT_quu4zNaO4dsqZy9y2LK43XMwNSdzD?usp=sharing).
+  Not committed to the repo — it exceeds GitHub's 100 MB per-file limit. Reproduce by re-running the notebook.
 
 ## 5. Results
 
