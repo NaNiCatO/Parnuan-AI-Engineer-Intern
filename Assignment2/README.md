@@ -4,8 +4,9 @@ Fine-tune a Thai-first open-weight model (LoRA/QLoRA) so a **self-hosted** model
 Assignment-1 commercial baseline on the **same held-out eval set** — eliminating per-call API cost and
 vendor lock-in at scale.
 
-> Status: data + notebook + harness are built and committed. The GPU training run happens on Colab;
-> results tables (§5, §6) are filled from that run. Cells marked _Colab_ are pending the run.
+> Run on a free Colab T4. **Result:** the open model (Qwen2.5-7B) matches the commercial baseline
+> **zero-shot** (98.4 amount-F1); the LoRA fine-tune is a near-wash (§5). All numbers below are from that
+> run (`reports/`).
 
 ---
 
